@@ -123,5 +123,5 @@ Ensure that `fiddo.bundle.js` is correctly referenced and loaded.
 ---
 
 ## Link from Documentation
-The main [FiddoJS — The ultimate documentation](FiddoJS.md) now includes a reference link to this demo explanation and demo page.
+The main [FiddoJS — The ultimate documentation](README.md) now includes a reference link to this demo explanation and demo page.
 
