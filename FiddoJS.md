@@ -31,6 +31,8 @@ FiddoJS bridges the gap between **ease of use** (HTML attributes for 90% of case
 This documentation mirrors the structure of popular validation libraries while documenting FiddoJS’s features and behavior.  
 It uses the **fiddo** namespace everywhere by default (except when demonstrating drop‑in replacement for ParsleyJS).
 
+> 📖 **See also:** [Demo documentation](FiddoJS-Demo.md) which explains the provided demo.html examples.
+
 
 ## Table of contents
 1. [Introduction](#introduction)  
