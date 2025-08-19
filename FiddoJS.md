@@ -3,35 +3,42 @@
 # FiddoJS — The ultimate documentation
 *A lightweight, declarative, jQuery-friendly form validator*
 
-**FiddoJS** is a modern, full‑rewrite form validation library for the web. It was inspired by the ideas behind **ParsleyJS**, but was re‑engineered from the ground up to address shortcomings encountered in real projects — especially with **grouped validation** and **AJAX workflows**.
+**FiddoJS** is a modern, full-rewrite form validation library for the web.  
+It was inspired by the ideas behind **ParsleyJS**, but re-engineered from the ground up to provide a **lighter, faster, and more flexible** experience — especially for **grouped validation** and **AJAX workflows**.
+
+✅ **HTML5 Compliant**  
+FiddoJS fully embraces HTML5 form validation attributes (`required`, `type="email"`, `pattern`, `min`, `max`, etc.) and extends them with a rich set of `data-fiddo-*` attributes. This makes your forms both **standards-compliant** and **self-describing**.
+
+---
 
 ### Why FiddoJS?
-During the use of ParsleyJS, developers often faced challenges:
-- **Grouped validation issues**: complex forms with dependent fields or checkbox/radio groups were difficult to validate consistently.  
-- **Remote checks & AJAX integration**: validating uniqueness (like email availability) or server-side constraints required workarounds.  
-- **Performance & flexibility**: ParsleyJS grew heavy and harder to extend for modern, dynamic web apps.
+FiddoJS is designed to give developers a smoother experience with modern forms and dynamic applications. It offers:
 
-FiddoJS was designed to solve these problems while keeping the developer experience familiar and simple. It is:
-- **Lightweight & fast**: a minimal footprint, efficient event handling, and promise‑based validation flow.  
-- **Declarative by design**: most validation rules are expressed directly in HTML with `data-fiddo-*` attributes, keeping markup self‑describing.  
-- **Extensible & configurable**: add your own validators, hook into events, and configure UI integration without rewriting core logic.  
-- **Group‑aware**: FiddoJS introduces a robust **GroupField** concept to handle multiple inputs, cross‑field rules, and checkbox/radio counts correctly.  
-- **AJAX‑friendly**: remote validators are first‑class citizens, returning Promises and integrating smoothly with async checks.  
-- **Accessible by default**: error messages and validation states integrate with ARIA attributes for better screen reader support.  
+- **HTML5 compliant & declarative**: integrates seamlessly with built-in HTML5 validation attributes, extended by `data-fiddo-*` for advanced rules.
+- **Lightweight & fast**: only ~30 KB minified (`fiddo.bundle.min.js`), and under 10 KB once gzipped.
+- **Extensible & configurable**: add custom validators, intercept events, and adapt UI behavior without hacking the core.
+- **Group-aware**: robust support for multiple inputs, cross-field checks, and checkbox/radio limits.
+- **AJAX-friendly**: remote validators are first-class citizens, returning Promises and integrating smoothly with async logic.
+- **Accessible by default**: validation states and error messages integrate with ARIA attributes to support screen readers.
+
+---
 
 ### Who should use FiddoJS?
-- Developers who liked the declarative style of ParsleyJS but need something lighter, faster, and more modern.  
-- Teams that need reliable **cross‑field validation** (e.g., password confirmation, at least one contact field filled, checkbox limits).  
-- Apps requiring **remote validators** (AJAX lookups, uniqueness checks).  
-- Anyone building forms where validation logic must be **clear in markup** but also **programmable and testable**.  
+- Developers who appreciate declarative validation but want something **lighter, faster, and standards-based**.
+- Teams needing **cross-field validation** (e.g., password confirmation, “at least one contact field” rules, checkbox limits).
+- Applications requiring **remote validators** (e.g., email uniqueness, server-side lookups).
+- Anyone building forms that must be **both HTML5 compliant in markup** and **programmable for advanced use cases**.
+
+---
 
 ### Philosophy
-FiddoJS bridges the gap between **ease of use** (HTML attributes for 90% of cases) and **power** (a rich programmatic API and extensibility). It is not just a fork or patch of ParsleyJS: it is a **complete rewrite** that retains familiarity while eliminating long‑standing issues.
+FiddoJS bridges the gap between **ease of use** (HTML5 + `data-fiddo-*` attributes for most scenarios) and **flexibility** (rich programmatic APIs and extension points).  
+It is not a fork or patch, but a **complete rewrite** that retains familiarity while adding modern design choices.
 
-This documentation mirrors the structure of popular validation libraries while documenting FiddoJS’s features and behavior.  
-It uses the **fiddo** namespace everywhere by default (except when demonstrating drop‑in replacement for ParsleyJS).
+This documentation mirrors the structure of popular validation libraries while focusing on FiddoJS’s unique features and behavior.  
+The **fiddo** namespace is used everywhere by default (except when demonstrating drop-in replacement with ParsleyJS).
 
-> 📖 **See also:** [Demo documentation](FiddoJS-Demo.md) which explains the provided demo.html examples.
+> 📖 **See also:** [Demo documentation](FiddoJS-Demo.md) which explains the provided `demo.html` examples.
 
 
 ## Table of contents
@@ -70,9 +77,17 @@ Core ideas:
 ## Installation
 
 ### Via `<script>` tags
+
+For **development** (readable, easier to debug):
 ```html
 <script src="https://code.jquery.com/jquery.min.js"></script>
 <script src="fiddo.bundle.js"></script>
+```
+For production (optimized and minified, only ~30 KB uncompressed and <10 KB gzipped):
+
+```html
+<script src="https://code.jquery.com/jquery.min.js"></script>
+<script src="fiddo.bundle.min.js"></script>
 ```
 
 ### Global config (optional)
@@ -96,6 +111,27 @@ Core ideas:
   };
 </script>
 ```
+
+### Enable debug logs (development only)
+
+FiddoJS can print detailed diagnostic logs to the browser console.  
+To enable this, define the global config **before** loading the Fiddo bundle:
+
+```html
+<script>
+    // Must be set BEFORE loading fiddo.bundle(.min).js
+    window.FiddoConfig = {
+        debug: true // show verbose console.debug logs from FiddoJS
+    };
+</script>
+```
+🔎 Notes
+
+- Debug logs use console.debug. Ensure your browser DevTools is set to show Verbose/All levels.
+- debug is read at load time. If you set window.FiddoConfig after including the bundle, it will not enable logs.
+- Leave debug out or set it to false to silence debug output. Warnings/errors may still appear via console.warn / console.error.
+
+### Form AutoBind
 
 > When `autoBind` is `true` and `namespace` is set, Fiddo automatically initializes all forms that have the attribute **`[data-fiddo-validate]`** on DOM ready.
 

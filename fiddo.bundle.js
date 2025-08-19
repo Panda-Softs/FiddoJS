@@ -1,4 +1,4 @@
-/**
+/**!
  * Fiddo — A Lightweight, Declarative Field Validator for Modern Forms
  * -------------------------------------------------
  * Version: 1.0
