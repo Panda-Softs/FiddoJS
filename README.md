@@ -348,28 +348,111 @@ Advanced:
 
 ---
 
+
 ## Remote (AJAX) validators
 
+Remote validators let you call your server (via `$.ajax`) and decide validity from the response. They are promise‑based and integrate with Fiddo’s async lifecycle.
+
+### Defining a remote validator (JS)
+
 ```js
+// Minimal
 Fiddo.addValidator('emailAvailable', {
-  url: '/api/users/email/available',
-  dataKey: 'email',
+  url: '/api/users/email/available',   // default method = GET
+  dataKey: 'email',                    // request payload key (see below)
   message: 'This email is already registered',
-  priority: 10 // remote checks usually run later
+  priority: 10                         // remote checks usually run later
+});
+
+// Advanced
+Fiddo.addValidator('uniquePhone', {
+  // You can omit `url` and provide it in the HTML requirement instead
+  // (string URL or JSON-like object, see next section)
+  dataKey: 'phone',                    // or use "*" to key by validator name
+  method: 'POST',                      // override default
+  isValidFn(data, textStatus, xhr) {   // define pass/fail from response
+    return !data?.duplicate;
+  },
+  successMessageFn({ data }) {         // optional success message
+    return data?.successMessage;
+  },
+  errorMessageFn({ data }) {           // optional error message
+    return data?.errorMessage || 'Phone already used';
+  }
 });
 ```
 
+- If `dataKey` is `"*"`, Fiddo uses the **validator name** as the key; otherwise it defaults to `"value"`.  
+- By default the HTTP method is **GET**; configure `method` to change it globally or per validator.
+
+### Supplying the requirement in HTML (string or JSON‑like)
+
+You can pass either:
+1) a **string URL** (the attribute value is the endpoint), or  
+2) a **JSON‑like object** with `{ url, extra }` to send additional parameters.
+
+Both **fiddo** and **parsley** namespaces work (see “Migrating from Parsley”).
+
 ```html
-<input name="email" required data-fiddo-email-available>
+<!-- String URL -->
+<input name="email"
+       required
+       data-fiddo-email-available="/api/users/email/available">
+
+<!-- JSON-like object (quotes/keys can be relaxed) -->
+<input id="person_phone"
+       name="person[phone]"
+       type="tel"
+       class="phone-input phone-input-formatter form_phone phone_format"
+       placeholder="07X XXX XX XX"
+       required="true"
+       data-parsley-type="phone"
+       data-parsley-whitespace="squish"
+       data-parsley-trigger="blur"
+       data-parsley-unique-phone="{extra:{client_id:${person?.clientId}}, url:'/api/clients/check/phone'}"
+       value="${person?.phone}">
 ```
 
-Behavior:
-- Sends `{ [dataKey]: value }` by default (method `POST`).
-- Considers HTTP 2xx as success; customize via `isValidFn(data, textStatus, xhr)`.
-- Reject resolves with server `errorMessage` (if provided); success can bubble a `successMessage`.
+Fiddo tolerates **JSON‑like** syntax in attributes: single quotes, unquoted keys, and even missing values are normalized before parsing — you don’t need perfectly strict JSON.
 
----
+### What gets sent to the server
 
+- **Single field** → `{ [dataKey]: value, ...extra }`  
+- **Group field (container with child inputs)** → Fiddo auto‑detects all direct child fields and sends an **object** made from their names and values, merged with `extra`:
+
+```json
+{ "<child1_name>": <value1>, "<child2_name>": <value2>, ..., ...extra }
+```
+
+This makes cross‑field remote checks (e.g., `{ first_name, last_name }`) straightforward: add your remote rule on the group container.
+
+### Response handling
+
+- By default, any **2xx** HTTP status is considered **valid**.  
+- Provide `isValidFn(data, textStatus, xhr)` to implement custom pass/fail logic.
+- You may return contextual messages with `successMessageFn` and `errorMessageFn`, or let the server reply with `{ successMessage, errorMessage }` which Fiddo will surface.
+
+### End‑to‑end example (Parsley drop‑in)
+
+```html
+<div data-parsley-validate>
+  <input id="person_phone"
+         name="person[phone]"
+         type="tel"
+         required
+         data-parsley-type="phone"
+         data-parsley-unique-phone="{extra:{client_id:${person?.clientId}}}">
+</div>
+<script>
+  // JS (already registered elsewhere)
+  Parsley.addValidator('uniquePhone', {
+    // URL can come from the HTML requirement (string or object)
+    isValidFn(data){ return !data?.duplicate; }
+  });
+</script>
+```
+
+> Tip: For new projects prefer the **fiddo** namespace: `data-fiddo-unique-phone="{'url':'/endpoint','extra':{client_id:123}}"`.
 ## UI, messages, and accessibility
 
 - Errors are rendered into **`errorsWrapper`** using **`errorTemplate`**; success uses **`successTemplate`** (or the same template if omitted).  

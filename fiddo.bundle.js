@@ -330,15 +330,46 @@
     deserialize(value) {
       value = value?.trim();
       if (!value) return '';
-      if (value.includes('[')) {
-        const arrayMatch = value.match(/^\[\s*(.*?)\s*\]$/);
-        if (arrayMatch) {
-          const inner = arrayMatch[1];
-          const items = inner.split(',').map(item => item.trim()).filter(Boolean);
-          return items;
+      let parsedNumber;
+      try {
+        // If it looks like JSON/array, normalize then parse
+        if (/^[\[\{]/.test(value)) {
+
+          // Special case: simple array of identifiers like [foo, bar]
+          if (/^\[[a-zA-Z_]+\s*,\s*[a-zA-Z_]+\]$/.test(value)) {
+            const arrayMatch = value.match(/^\[\s*(.*?)\s*\]$/);
+            if (arrayMatch) {
+              const arrayContent = arrayMatch[1];
+              const arrayElements = arrayContent
+                  .split(',')
+                  .map(element => element.trim())
+                  .filter(Boolean);
+              return arrayElements;
+            }
+          } else {
+            // General case: try to fix non-standard JSON before parsing
+
+            let normalized = value
+                // 1) Replace single quotes with double quotes
+                .replace(/'/g, '"')
+                // 2) Quote unquoted object keys (e.g. {foo:} → {"foo":})
+                .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g, '$1"$2"$3')
+                // 3) Replace missing values with empty strings (e.g. {"foo":} → {"foo":""})
+                .replace(/:\s*(?=[,}])/g, ':""');
+
+            return JSON.parse(normalized);
+          }
         }
+
+        // Fallback: handle booleans, null, numbers, or return raw string
+        return value == "true" ||
+            (value == "false" ? false :
+                value == "null"  ? null  :
+                    !isNaN(parsedNumber = Number(value)) ? parsedNumber : value);
+      } catch (e) {
+        // If anything goes wrong, return the original string
+        return value;
       }
-      return value;
     },
 
     /**
@@ -803,7 +834,7 @@
       super({name, message, group, priority});
       this.url = url;                 // may be undefined; then we'll use "requirements" as URL
       this.method = method || globalConfig.defaultAjaxMethod;
-      this.dataKey = dataKey || 'value';
+      this.dataKey = (dataKey=='*' ? this.name : dataKey) || 'value';
       // bind both so "this" is always the RemoteValidator (bound functions ignore .apply/.call)
       this.validateFn = this.validateFn.bind(this);
       this.isValidFn = (isValidFn || this.defaultIsValidFn).bind(this);
@@ -819,9 +850,8 @@
 
     validateFn(values, requirements, field) {
 
-      if (this.preValidateFn && this.preValidateFn(values)==false) {
+      if (this.preValidateFn && this.preValidateFn(values)==false)
         Promise.resolve(true);
-      }
 
       // NEW: resolve URL from spec.url OR from the "requirement" (attribute value)
       const resolvedUrl =
@@ -844,7 +874,7 @@
         // Group field (has children)
           const obj = {};
           field.fields.forEach((child, idx) => {
-            obj[child.name] = child.getValue();
+            obj[child._name] = child.getValue();
           });
           return obj;
       };
@@ -967,15 +997,17 @@
     constructor(el, form, options, parentGroup) {
       this.element = el;
       this.$element = $(el);
-      this.form = form;
-      this.options = options;
-      this.constraints = {};
-      this._lastValidatedValue = null;
-      this._lastValidationState = null;
-      this._lastShouldValidate = null;
-      this._failedOnce = false; // Track if field ever failed (to switch trigger)
+      this.form = form;                 // The current form
+      this.options = options;           // The global optons
+      this.constraints = {};            // The field constrains
+
+      this._lastValidatedValue = null;  // Indicate the latest validated field value
+      this._lastValidationState = null; // Indicate the latest validation state (null,false,true)
+      this._lastShouldValidate = null;  // Cache the latest should validate state in order to detect dynamic validateIf condition change
+      this._failedOnce = false;         // Track if field ever failed (to switch trigger)
       this.__id__ = Utils.getElementId(this.element);
-      this.name = Utils.parseInputName(this.element.name) ||  this.__id__;
+      this._name = Utils.parseInputName(this.element.name) ||  this.__id__;
+      this._isChoiceInput = /^(checkbox|radio)$/i.test(this.element.type);
       this._parentGroup = parentGroup;
       this._isValid = false;
       this._actualizeConstaints();
@@ -1108,25 +1140,6 @@
       Utils.debounceCall(this, '_debounced', this.options.debounce, _ => this._silentValidate(event));
     }
 
-    /*
-    _updateParentGroup(isValid, event) {
-      if (isValid) {
-        // Some or all fields are invalid
-        if (Utils.eventTypeMatches(event, this._parentGroup._eventTrigger)) {
-          Utils.debug(`notifying parent group that ${this.element.name} is now valid`);
-          this._parentGroup.whenValidate().catch(() => {});
-        }
-      } else {
-        // All fields are valid
-        // In case of preview validate state, clean the parent group field
-        if (this._parentGroup._lastValidationState === false) {
-          Utils.debug(`notifying parent group that ${this.element.name} is now invalid`);
-          this._parentGroup.reset();
-        }
-
-      }
-    }*/
-
     _silentValidate(event) {
       const prevState = this._lastValidationState;
 
@@ -1136,7 +1149,10 @@
         const discreteEvt  = Utils.eventTypeMatches(event, 'change blur');
 
         if (this._hasParentGroup() && (stateChanged || discreteEvt)) {
-          this._parentGroup.queueValidateFromChild(this, event);
+          // Do not validate the parent field (all ask to validate all children) until all non choice input are yet being processed once
+          const containsUnproccesedFields = this._parentGroup.fields.some(f => f._lastValidationState === null && !f.isChoiceInput); // Need check required ?
+          if (!containsUnproccesedFields)
+            this._parentGroup.queueValidateFromChild(this, event);
         }
       };
 
@@ -1385,7 +1401,7 @@
        * validation is skipped and field is treated as valid.
        */
       // Is this a checkbox or radio?
-      if (/^(checkbox|radio)$/i.test(this.element.type)||!this.shouldValidate()||!Utils.size(this.constraints)||!Utils.isElementVisible(this.$element))
+      if (this._isChoiceInput||!this.shouldValidate()||!Utils.size(this.constraints)||!Utils.isElementVisible(this.$element))
         return resolveAsValid(false);
 
       /**
