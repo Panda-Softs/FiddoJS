@@ -123,7 +123,47 @@
         z-index: 0
     }
 
-</style>
+    /* Adjustable knobs */
+    :root {
+        --fiddo-spinner-size: 1em;    /* size of the spinner */
+        --fiddo-spinner-right: .5rem; /* gap from the right edge */
+    }
+
+    /* Show a rotating spinner inside the field, aligned to the right */
+    .ajax-loading {
+        background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCc+CiA8Y2lyY2xlIGN4PScxMicgY3k9JzEyJyByPScxMCcgc3Ryb2tlPSdjdXJyZW50Q29sb3InIHN0cm9rZS1vcGFjaXR5PScwLjI1JyBzdHJva2Utd2lkdGg9JzQnIGZpbGw9J25vbmUnLz4KIDxwYXRoIGQ9J00yMiAxMmExMCAxMCAwIDAgMS0xMCAxMCcgc3Ryb2tlPSdjdXJyZW50Q29sb3InIHN0cm9rZS13aWR0aD0nNCcgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJyBmaWxsPSdub25lJz4KICAgPGFuaW1hdGVUcmFuc2Zvcm0gYXR0cmlidXRlTmFtZT0ndHJhbnNmb3JtJyB0eXBlPSdyb3RhdGUnIGZyb209JzAgMTIgMTInIHRvPSczNjAgMTIgMTInIGR1cj0nMC44cycgcmVwZWF0Q291bnQ9J2luZGVmaW5pdGUnLz4KIDwvcGF0aD4KPC9zdmc+");
+        background-repeat: no-repeat;
+        background-position: calc(100% - var(--fiddo-spinner-right)) 50%;
+        background-size: var(--fiddo-spinner-size) var(--fiddo-spinner-size);
+
+        /* Make room for the spinner so text/caret don’t overlap it */
+        padding-right: calc(var(--fiddo-spinner-size) + var(--fiddo-spinner-right) + .25rem);
+
+        cursor: progress; /* optional */
+    }
+
+    /* Accessibility fallback for high-contrast / forced colors */
+    @media (forced-colors: active) {
+        .ajax-loading { background-image: none; }
+    }
+
+    select.ajax-loading.selectized + .selectize-control { position: relative; }
+    select.ajax-loading.selectized + .selectize-control::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        right: var(--fiddo-spinner-right, .5rem);
+        width: var(--fiddo-spinner-size, 1em);
+        height: var(--fiddo-spinner-size, 1em);
+        transform: translateY(-50%);
+        background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCc+CiA8Y2lyY2xlIGN4PScxMicgY3k9JzEyJyByPScxMCcgc3Ryb2tlPSdjdXJyZW50Q29sb3InIHN0cm9rZS1vcGFjaXR5PScwLjI1JyBzdHJva2Utd2lkdGg9JzQnIGZpbGw9J25vbmUnLz4KIDxwYXRoIGQ9J00yMiAxMmExMCAxMCAwIDAgMS0xMCAxMCcgc3Ryb2tlPSdjdXJyZW50Q29sb3InIHN0cm9rZS13aWR0aD0nNCcgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJyBmaWxsPSdub25lJz4KICAgPGFuaW1hdGVUcmFuc2Zvcm0gYXR0cmlidXRlTmFtZT0ndHJhbnNmb3JtJyB0eXBlPSdyb3RhdGUnIGZyb209JzAgMTIgMTInIHRvPSczNjAgMTIgMTInIGR1cj0nMC44cycgcmVwZWF0Q291bnQ9J2luZGVmaW5pdGUnLz4KIDwvcGF0aD4KPC9zdmc+");
+        background-repeat: no-repeat;
+        background-size: 100% 100%;
+        pointer-events: none;
+    }
+
+
+    </style>
 </head>
 <body>
 <div class="container">
@@ -304,17 +344,7 @@ $(function () {
             { email: "someone-else@yahoo.com", name: "Someone Else" },
         ],
     });
-    /*
-    const $select = $("#select");
-    // 1) jQuery style: listen to change on the original select
-    $select.on("change", function () {
-        console.log("Selected (jQuery change):", $(this).val());
-    });
-    // 2) Or, use Selectize’s own API
-    const selectize = $select[0].selectize;
-    selectize.on("change", function (value) {
-        console.log("Selected (Selectize API):", value);
-    });*/
+
 
     Parsley.addValidator('uniqueCustomer', {
         url: 'http://localhost',
@@ -363,7 +393,7 @@ $(function () {
 
             // resolve with the three jQuery-style args
             dfd.resolve({ valid: isValid }, textStatus, jqXHR);
-        }, 500);
+        }, 700);
 
         return dfd.promise();
     };

@@ -34,6 +34,8 @@
 
 (function ($) {
 
+  'use strict';
+
   const pluginName = window.FiddoPluginName || 'Fiddo';
   const namespace = pluginName.toLowerCase();
 
@@ -56,16 +58,34 @@
    * Example usage:
    *   $('input:attrStartsWith(data-fiddo-)') → matches input elements with any `data-fiddo-*` attribute.
    */
-// Determine the correct jQuery pseudo-selector container based on version
-  const jqVersion = +$.fn.jquery.split('.')[0];
-  const exprPseudo = jqVersion < 4 ? $.expr[':'] : $.expr.pseudos;
 
-// Define the :attrStartsWith custom selector
-  exprPseudo.attrStartsWith = function(elem, index, meta) {
-    const prefix = meta[3];
-    if (!prefix) return false;
-    return Array.from(elem.attributes).some(attr => attr.name.startsWith(prefix));
-  };
+  // Single consolidated guard: if any prerequisite is missing, throw one error.
+  if (!($ && $.fn && $.fn.jquery && $.expr &&
+      typeof $.expr.createPseudo === 'function' &&
+      ($.expr.pseudos || $.expr[':']))) {
+    throw new Error('attrStartsWith: requires jQuery with Sizzle selector engine and $.expr.createPseudo support.');
+  }
+
+  if (typeof $.expr.createPseudo === 'function') {
+    // Choose the correct pseudos bucket across jQuery versions
+    const pseudos = $.expr.pseudos || $.expr[':']; // 1.9+ uses .pseudos
+    pseudos.attrStartsWith = $.expr.createPseudo(function (arg) {
+      // Normalize the argument: allow quoted or unquoted forms
+      // e.g. :attrStartsWith("data-parsley-") or :attrStartsWith(data-parsley-)
+      const prefix = (arg || '').replace(/^["']|["']$/g, '');
+
+      // prefix = ce qui est entre parenthèses, ex: "data-parsley-"
+      return function (elem) {
+        if (!elem || elem.nodeType !== 1 || !prefix) return false;
+        var attrs = elem.attributes;
+        for (let i = 0; i < attrs.length; i++) {
+          // Use indexOf for widest compatibility
+          if (attrs[i].name.indexOf(prefix) === 0) return true;
+        }
+        return false;
+      };
+    });
+  }
 
   const Utils = {
 
@@ -645,7 +665,8 @@
     },*/
     errorsWrapper: '<ul class="parsley-errors-list"></ul>',
     errorTemplate: '<li></li>',
-    successTemplate : ''
+    successTemplate : '',
+    defaultAjaxMethod : 'GET',
   };
 
   class ValidationError extends Error {
@@ -685,8 +706,8 @@
       try {
 
         const args = Array.isArray(requirements)
-            ? [value, ...requirements]
-            : [value, requirements];
+            ? [value, ...requirements, field]
+            : [value, requirements, field];
 
         // Call `fn` with the `field` as `this` context
         const fnResult = fn.apply(field, args);
@@ -778,21 +799,30 @@
   }
 
   class RemoteValidator extends Validator {
-    constructor({name, message, group, url, method = 'POST', dataKey = 'value', isValidFn = null, priority=10}) {
+    constructor({name, message, group, url, method, dataKey, isValidFn = null, priority=10, preValidateFn=null, successMessageFn = null, errorMessageFn = null}) {
       super({name, message, group, priority});
       this.url = url;                 // may be undefined; then we'll use "requirements" as URL
-      this.method = method;
-      this.dataKey = dataKey;
+      this.method = method || globalConfig.defaultAjaxMethod;
+      this.dataKey = dataKey || 'value';
       // bind both so "this" is always the RemoteValidator (bound functions ignore .apply/.call)
       this.validateFn = this.validateFn.bind(this);
       this.isValidFn = (isValidFn || this.defaultIsValidFn).bind(this);
+      // Optional message builders (bind for symmetry)
+      this.preValidateFn = typeof preValidateFn === 'function' ? preValidateFn.bind(this) : null;
+      this.successMessageFn = typeof successMessageFn === 'function' ? successMessageFn.bind(this) : null;
+      this.errorMessageFn   = typeof errorMessageFn   === 'function' ? errorMessageFn.bind(this)   : null;
     }
 
     defaultIsValidFn(data, textStatus, xhr) {
       return xhr?.status >= 200 && xhr?.status < 300;
     }
 
-    validateFn(values, requirements) {
+    validateFn(values, requirements, field) {
+
+      if (this.preValidateFn && this.preValidateFn(values)==false) {
+        Promise.resolve(true);
+      }
+
       // NEW: resolve URL from spec.url OR from the "requirement" (attribute value)
       const resolvedUrl =
           this.url ||
@@ -808,12 +838,28 @@
       // data-fiddo-coupon='{"url":"/fxbase/coupon/validate","extra":{"clientId":123}}'
       const extra = (requirements && requirements.extra) || {};
 
+      field.$element.addClass('ajax-loading');
+
+      const buildObjectPayload = () => {
+        // Group field (has children)
+          const obj = {};
+          field.fields.forEach((child, idx) => {
+            obj[child.name] = child.getValue();
+          });
+          return obj;
+      };
+
+      const payload =
+          field instanceof GroupField
+              ? { ...buildObjectPayload(), ...extra }
+              : { [this.dataKey]: values, ...extra };
+
       // Return a *native* Promise that resolves (pass) or rejects (fail)
       return new Promise((resolve, reject) => {
         $.ajax({
           url: resolvedUrl,
           method: this.method,
-          data: { [this.dataKey]: values, ...extra }
+          data: payload
         }).done((data, textStatus, jqXHR) => {
               let isValid = false;
               try {
@@ -823,11 +869,17 @@
                 console.error(`${pluginName} RemoteValidator isValidFn threw an error:`, e);
                 reject(e); return;
               }
-              isValid ? resolve({successMessage : data?.successMessage}) : reject(data?.errorMessage || this.message);
+              if (isValid)
+                resolve({successMessage : (this.successMessageFn && this.successMessageFn({ data, values })) || data?.successMessage});
+              else
+                reject((this.errorMessageFn && this.errorMessageFn({ data, values })) || data?.errorMessage || this.message);
        })//
        .fail((jqXHR, textStatus, errorThrown) => {
          reject(errorThrown || textStatus || 'Remote validation failed');
-       });
+       }).always(function() {
+            // like finally: runs in both success and fail
+            field.$element.removeClass('ajax-loading');
+        });
       });
     }
   }
@@ -920,8 +972,10 @@
       this.constraints = {};
       this._lastValidatedValue = null;
       this._lastValidationState = null;
+      this._lastShouldValidate = null;
       this._failedOnce = false; // Track if field ever failed (to switch trigger)
       this.__id__ = Utils.getElementId(this.element);
+      this.name = Utils.parseInputName(this.element.name) ||  this.__id__;
       this._parentGroup = parentGroup;
       this._isValid = false;
       this._actualizeConstaints();
@@ -1303,10 +1357,16 @@
         if (this._lastValidationState === false) this._handleUI(true);
         triggerValidateEvent && this._trigger('success', { field: this }); // Notify listeners
         this._lastValidationState = true;            // Cache valid state
+        this._isValid = true;
         return Promise.resolve(value);               // Resolve with current value
       };
 
-      if (Utils.areEquals(value, this._lastValidatedValue) && this._lastValidationState !== null) {
+      // --- NEW: compute conditional state FIRST
+      const prevShould = this._lastShouldValidate;
+      const should = this.shouldValidate();
+      this._lastShouldValidate = should;
+
+      if (prevShould === should && Utils.areEquals(value, this._lastValidatedValue) && this._lastValidationState !== null) {
         return this._lastValidationState ? Promise.resolve(value) : Promise.reject(this);
       }
 
@@ -1449,7 +1509,9 @@
     }
 
     getValue() {
-      return this.$element.val();
+      if (/^(checkbox|radio)$/i.test(this.element.type))
+        return this.element.checked;
+      return this.element.value;
     }
 
     _isRequired() {
@@ -1548,7 +1610,7 @@
         // Add each error message as an <li> inside the wrapper
         for (const error of validationErrors) {
           const $error = $(this.options.errorTemplate)
-              .text(error.errorMessage)                    // Human-readable message
+              .html(error.errorMessage)                    // Human-readable message
               .attr(`data-error-${error.assert}`, '');     // Data attribute for type of assertion
 
           $wrapper.append($error);
@@ -1558,7 +1620,7 @@
       // --- Render success message (if any) ---
       if (hasSuccessMessages) {
         const $success = $(this.options.successTemplate || this.options.errorTemplate)
-            .text(this.validationSuccessMessage)            // Success text (provided by validator)
+            .html(this.validationSuccessMessage)            // Success text (provided by validator)
             .attr('data-success', '')                       // Marker attribute
             .addClass(`${this.options.namespace}success-message`); // Namespace-based CSS class
 
@@ -1578,6 +1640,7 @@
       this.validationSuccessMessage = null;
       this._lastValidatedValue = null;
       this._lastValidationState = null;
+      this._lastShouldValidate = null;
       this._isValid = false;
       this.$errorsWrapper && this.$errorsWrapper.empty().removeClass('filled').attr('aria-hidden', 'true').removeAttr('role aria-live');
       this._getClassHandler().removeClass(this.options.successClass).removeClass(this.options.errorClass).removeAttr('aria-invalid aria-describedby');
@@ -1622,9 +1685,12 @@
     }
 
     _collectGroupFields() {
-      let groupInputType = null;
-      let hasSpecialGroupType = false;
       this.fields = [];
+
+      // Before the loop
+      let groupInputType = null;            // will be 'checkbox' | 'radio' | null
+      const specialTypes = new Set();       // collects 'checkbox' / 'radio' actually seen
+      let hasOtherTypes = false;            // did we see any non-checkbox/radio element?
 
       this.form._getCandidateElements(this.$element).each((i, el) => {
         Utils.debug(`FieldGroup : collecting child element \`${Utils.getElementId(el)}\``);
@@ -1634,24 +1700,28 @@
 
         const type = (el.type || '').toLowerCase();
 
-        // Only care about real input/select/textarea types
-        if (/^(checkbox|radio)$/i.test(type)) {
-          hasSpecialGroupType = true;
-
-          if (groupInputType === null) {
-            groupInputType = type;
-          } else if (groupInputType !== type) {
-            throw new Error(`${pluginName} GroupField error: mixed types in group: "${groupInputType}" and "${type}" are not allowed.`);
-          }
-        } else if (hasSpecialGroupType) {
-          // Already seen checkbox or radio, but now a different type found
-          throw new Error(`${pluginName} GroupField error: cannot mix "${groupInputType}" with other input types in the same group.`);
+        // Track only the special groupable types
+        if (type === 'checkbox' || type === 'radio') {
+          specialTypes.add(type);
+        } else {
+          // Anything else (text, email, select, textarea, etc.)
+          hasOtherTypes = true;
         }
       });
 
-      if (groupInputType) {
-        this.multipleType = groupInputType; // Store for later logic if needed
+      // Decide groupInputType AFTER we've inspected every child:
+      // - Set to 'checkbox' only if ALL candidates are checkboxes
+      // - Set to 'radio'    only if ALL candidates are radios
+      // - Otherwise (mixed, or includes other types), leave as null
+      if (!hasOtherTypes && specialTypes.size === 1) {
+        // The single value in the set is either 'checkbox' or 'radio'
+        groupInputType = specialTypes.values().next().value;
+      } else {
+        groupInputType = null; // mixed types or non-special types present → generic group
       }
+
+      // If you store it on the instance:
+      this.multipleType = groupInputType;
     }
 
     _containsField(element) {
